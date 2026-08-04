@@ -1,0 +1,210 @@
+{% macro money(v) %}{% if v is none %}—{% elif v < 0 %}-${{ '{:,.0f}'.format(-v) }}{% else %}${{ '{:,.0f}'.format(v) }}{% endif %}{% endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>concertscraper</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f7f7f8; --card:#fff; --fg:#111827;
+          --muted:#6b7280; --line:#e5e7eb; --accent:#1d4ed8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --card:#161b22; --fg:#e6edf3; --muted:#8b949e;
+            --line:#30363d; --accent:#58a6ff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5
+         -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 18px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:22px; }
+  .stats { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:22px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:9px;
+          padding:12px 16px; min-width:112px; }
+  .stat b { display:block; font-size:20px; }
+  .stat span { color:var(--muted); font-size:11px; text-transform:uppercase;
+               letter-spacing:.05em; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px;
+           padding:9px 15px; font-size:13px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent);
+                 border:1px solid var(--line); }
+  button:disabled { opacity:.55; cursor:progress; }
+  .scroll { overflow-x:auto; background:var(--card); border:1px solid var(--line);
+            border-radius:10px; }
+  table { border-collapse:collapse; width:100%; min-width:760px; }
+  th, td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line);
+           vertical-align:top; }
+  th { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+       color:var(--muted); font-weight:600; }
+  tbody tr:last-child td { border-bottom:0; }
+  .score { font-weight:700; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; font-size:10px; padding:2px 7px; border-radius:99px;
+          background:var(--line); color:var(--muted); }
+  .reasons { color:var(--muted); font-size:12px; margin:4px 0 0; padding-left:16px; }
+  a { color:var(--accent); }
+  .empty { padding:34px; text-align:center; color:var(--muted); }
+  h2 { font-weight:600; }
+  .up { color:#059669; }
+  .down { color:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    .up { color:#34d399; } .down { color:#f87171; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>concertscraper</h1>
+  <p class="sub">
+    Ticketmaster Discovery API + Spotify demand signals. Ranked by estimated
+    appreciation. Non-transferable inventory is filtered out automatically.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><b>{{ stats.events }}</b><span>Events</span></div>
+    <div class="stat"><b>{{ stats.snapshots }}</b><span>Snapshots</span></div>
+    <div class="stat"><b>{{ stats.artists }}</b><span>Artists</span></div>
+    <div class="stat"><b>{{ stats.vetoed }}</b><span>Filtered out</span></div>
+    <div class="stat"><b>{{ stats.alerts }}</b><span>Alerts sent</span></div>
+  </div>
+
+  <div class="bar">
+    <button onclick="hit('/api/poll', this)">Run poll now</button>
+    <button class="ghost" onclick="hit('/api/rescore', this)">Rescore</button>
+    <button class="ghost" onclick="hit('/api/digest', this)">Send digest</button>
+    <button class="ghost" onclick="hit('/api/portfolio/report', this)">Portfolio report</button>
+    <span id="msg" class="pill" hidden></span>
+  </div>
+
+  {% if positions %}
+  <h2 style="font-size:16px;margin:26px 0 4px;">Your positions</h2>
+  <p class="sub" style="margin-bottom:14px;">
+    Marked at the current primary listing floor — a proxy for resale, not resale
+    comps. Re-priced daily.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><b>{{ money(totals.total_cost) }}</b><span>Cost basis</span></div>
+    <div class="stat"><b>{{ money(totals.total_value) }}</b><span>Est. value</span></div>
+    <div class="stat">
+      <b class="{{ 'up' if (totals.unrealized_pnl or 0) >= 0 else 'down' }}">
+        {{ money(totals.unrealized_pnl) }}
+        {%- if totals.unrealized_pct is not none %}
+        <span style="font-size:12px;">({{ '%+.1f'|format(totals.unrealized_pct * 100) }}%)</span>
+        {%- endif %}
+      </b><span>Unrealized</span>
+    </div>
+    <div class="stat">
+      <b class="{{ 'up' if totals.realized_pnl >= 0 else 'down' }}">{{ money(totals.realized_pnl) }}</b>
+      <span>Realized</span>
+    </div>
+  </div>
+
+  <div class="scroll" style="margin-bottom:30px;">
+    <table>
+      <thead><tr>
+        <th>#</th><th>Position</th><th>Qty</th><th>Basis/ea</th>
+        <th>Now/ea</th><th>P/L</th><th>Day</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in positions %}{% set h = r.holding %}
+        <tr>
+          <td>{{ h.id }}</td>
+          <td>
+            <strong>{{ h.event_name }}</strong><br>
+            <span style="color:var(--muted);font-size:12px;">
+              {{ h.venue_name or '—' }}
+              {%- if h.event_starts_at %} · {{ h.event_starts_at.strftime('%b %d, %Y') }}{% endif %}
+              {%- if r.days_to_event is not none %} ({{ r.days_to_event }}d){% endif %}
+            </span>
+          </td>
+          <td>{{ h.quantity }}</td>
+          <td style="white-space:nowrap;">{{ money(h.cost_per_ticket) }}</td>
+          <td style="white-space:nowrap;">
+            {% if r.unit_value is not none %}{{ money(r.unit_value) }}
+            {% else %}<span class="pill">unpriced</span>{% endif %}
+          </td>
+          <td style="white-space:nowrap;"
+              class="{{ 'up' if (r.unrealized_pnl or 0) >= 0 else 'down' }}">
+            {{ money(r.unrealized_pnl) }}
+            {%- if r.pnl_pct is not none %}<br>
+            <span style="font-size:11px;">{{ '%+.1f'|format(r.pnl_pct * 100) }}%</span>
+            {%- endif %}
+          </td>
+          <td style="white-space:nowrap;"
+              class="{{ 'up' if (r.day_change_pct or 0) >= 0 else 'down' }}">
+            {% if r.day_change_pct is not none %}
+              {{ '%+.1f'|format(r.day_change_pct * 100) }}%
+            {% else %}—{% endif %}
+          </td>
+          <td><a href="{{ r.comps_url }}" target="_blank" rel="noopener">Comps</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <h2 style="font-size:16px;margin:26px 0 14px;">Opportunities</h2>
+
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Score</th><th>Event</th><th>When</th><th>Price</th><th>Why</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for c in candidates %}
+        <tr>
+          <td class="score">{{ '%.2f'|format(c.score.score) }}<br>
+            <span class="pill">{{ '%.0f'|format(c.score.confidence * 100) }}%</span></td>
+          <td>
+            <strong>{{ c.event.name }}</strong><br>
+            <span style="color:var(--muted);font-size:12px;">
+              {{ c.event.venue_name or '—' }}{% if c.event.city %} · {{ c.event.city }}{% endif %}
+            </span>
+          </td>
+          <td style="white-space:nowrap;">
+            {% if c.event.starts_at %}{{ c.event.starts_at.strftime('%b %d, %Y') }}{% else %}TBA{% endif %}
+          </td>
+          <td style="white-space:nowrap;">
+            {% if c.event.min_price %}${{ '%.0f'|format(c.event.min_price) }}{% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="pill">{{ c.kind.replace('_',' ') }}</span>
+            {% if c.reasons %}
+            <ul class="reasons">{% for r in c.reasons[:3] %}<li>{{ r }}</li>{% endfor %}</ul>
+            {% endif %}
+          </td>
+          <td><a href="{{ c.buy_url }}" target="_blank" rel="noopener">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty">
+          Nothing above the alert threshold yet. Run a poll, then let a few cycles
+          accumulate — price momentum needs at least two snapshots 12h apart.
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function hit(url, btn) {
+  const msg = document.getElementById('msg');
+  btn.disabled = true;
+  msg.hidden = false;
+  msg.textContent = 'working...';
+  try {
+    const res = await fetch(url, { method: 'POST' });
+    const data = await res.json();
+    msg.textContent = JSON.stringify(data);
+    if (res.ok) setTimeout(() => location.reload(), 1200);
+  } catch (err) {
+    msg.textContent = 'failed: ' + err;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

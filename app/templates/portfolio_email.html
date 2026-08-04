@@ -1,0 +1,140 @@
+{% macro money(v) %}{% if v is none %}—{% elif v < 0 %}-${{ '{:,.0f}'.format(-v) }}{% else %}${{ '{:,.0f}'.format(v) }}{% endif %}{% endmacro %}
+{% set up = '#047857' %}{% set down = '#b91c1c' %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="background:#f4f5f7;padding:24px 0;margin:0;
+              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr><td align="center">
+    <table role="presentation" width="620" cellpadding="0" cellspacing="0"
+           style="width:620px;max-width:100%;background:#ffffff;border-radius:10px;overflow:hidden;">
+
+      <tr><td style="padding:22px 26px;background:#111827;">
+        <div style="color:#ffffff;font-size:17px;font-weight:600;">Your ticket portfolio</div>
+        <div style="color:#9ca3af;font-size:12px;padding-top:4px;">
+          {{ now.strftime('%A %B %d, %Y — %H:%M UTC') }}
+        </div>
+      </td></tr>
+
+      <tr><td style="padding:20px 26px 6px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding-bottom:12px;">
+              <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                          letter-spacing:.05em;">Estimated value</div>
+              <div style="font-size:26px;font-weight:700;color:#111827;">
+                {{ money(totals.total_value) }}
+              </div>
+            </td>
+            <td style="padding-bottom:12px;text-align:right;">
+              <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                          letter-spacing:.05em;">Unrealized</div>
+              <div style="font-size:26px;font-weight:700;
+                          color:{{ up if (totals.unrealized_pnl or 0) >= 0 else down }};">
+                {{ money(totals.unrealized_pnl) }}
+                {% if totals.unrealized_pct is not none %}
+                <span style="font-size:14px;font-weight:600;">
+                  ({{ '%+.1f'|format(totals.unrealized_pct * 100) }}%)
+                </span>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        </table>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+               style="font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;
+                      padding-top:10px;">
+          <tr>
+            <td style="padding-top:10px;">
+              {{ totals.positions }} open {{ 'position' if totals.positions == 1 else 'positions' }}
+              · {{ totals.tickets }} tickets · basis {{ money(totals.total_cost) }}
+              {% if totals.realized_pnl %}
+              · realized {{ money(totals.realized_pnl) }}
+              {% endif %}
+              {% if totals.unpriced %}
+              <br><span style="color:#b45309;">
+                {{ totals.unpriced }} position{{ '' if totals.unpriced == 1 else 's' }}
+                could not be priced this run.
+              </span>
+              {% endif %}
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+
+      {% for r in reports %}{% if r.holding.is_open %}
+      {% set h = r.holding %}
+      <tr><td style="padding:16px 26px;border-top:1px solid #e5e7eb;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="vertical-align:top;">
+              <div style="font-size:15px;font-weight:600;color:#111827;">{{ h.event_name }}</div>
+              <div style="font-size:12px;color:#6b7280;padding-top:4px;">
+                {{ h.venue_name or '—' }}{% if h.city %} · {{ h.city }}{% endif %}
+                {% if h.event_starts_at %} · {{ h.event_starts_at.strftime('%b %d, %Y') }}{% endif %}
+                {% if r.days_to_event is not none %} ({{ r.days_to_event }}d out){% endif %}
+              </div>
+              <div style="font-size:12px;color:#6b7280;padding-top:2px;">
+                {{ h.quantity }}x
+                {%- if h.section %} · sec {{ h.section }}{% endif %}
+                {%- if h.row %} · row {{ h.row }}{% endif %}
+                · basis {{ money(h.cost_per_ticket) }}/ea
+              </div>
+            </td>
+            <td width="150" style="vertical-align:top;text-align:right;">
+              {% if r.unit_value is not none %}
+              <div style="font-size:18px;font-weight:700;color:#111827;">
+                {{ money(r.unit_value) }}<span style="font-size:11px;color:#9ca3af;">/ea</span>
+              </div>
+              <div style="font-size:13px;font-weight:600;padding-top:3px;
+                          color:{{ up if (r.unrealized_pnl or 0) >= 0 else down }};">
+                {{ money(r.unrealized_pnl) }}
+                {% if r.pnl_pct is not none %}({{ '%+.1f'|format(r.pnl_pct * 100) }}%){% endif %}
+              </div>
+              {% if r.day_change_pct is not none %}
+              <div style="font-size:11px;padding-top:3px;
+                          color:{{ up if r.day_change_pct >= 0 else down }};">
+                {{ '%+.1f'|format(r.day_change_pct * 100) }}% since last check
+              </div>
+              {% else %}
+              <div style="font-size:11px;color:#9ca3af;padding-top:3px;">first mark</div>
+              {% endif %}
+              {% else %}
+              <div style="font-size:12px;color:#b45309;">
+                not priced<br>
+                <span style="font-size:11px;color:#9ca3af;">
+                  {{ r.latest.error if r.latest else 'no valuation yet' }}
+                </span>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+        </table>
+
+        <div style="padding-top:12px;">
+          {% if h.event_url %}
+          <a href="{{ h.event_url }}"
+             style="display:inline-block;color:#1d4ed8;text-decoration:none;
+                    padding:7px 11px;border:1px solid #c7d2fe;border-radius:6px;
+                    font-size:12px;font-weight:500;">Event page</a>
+          {% endif %}
+          <a href="{{ r.comps_url }}"
+             style="display:inline-block;margin-left:6px;color:#1d4ed8;
+                    text-decoration:none;padding:7px 11px;border:1px solid #c7d2fe;
+                    border-radius:6px;font-size:12px;font-weight:500;">Resale comps</a>
+        </div>
+      </td></tr>
+      {% endif %}{% endfor %}
+
+      <tr><td style="padding:18px 26px;background:#f9fafb;font-size:11px;
+                     color:#6b7280;line-height:1.6;">
+        <strong>How to read these numbers.</strong> Values are the current
+        <em>primary</em> listing floor for comparable seats — the only feed available
+        without a partner API — and include Ticketmaster's dynamic pricing. They are a
+        proxy for the resale market, not resale comps. The direction of travel is
+        reliable; the level is an estimate, so open the resale comps link before you
+        list or sell. Not financial advice.
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>

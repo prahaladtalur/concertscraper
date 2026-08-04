@@ -1,0 +1,104 @@
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="background:#f4f5f7;padding:24px 0;margin:0;
+              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+           style="width:600px;max-width:100%;background:#ffffff;border-radius:10px;overflow:hidden;">
+
+      <tr><td style="padding:22px 26px;background:#111827;">
+        <div style="color:#ffffff;font-size:17px;font-weight:600;">
+          {{ candidates|length }} ticket {{ 'opportunity' if candidates|length == 1 else 'opportunities' }}
+        </div>
+        <div style="color:#9ca3af;font-size:12px;padding-top:4px;">
+          {{ now.strftime('%A %B %d, %Y — %H:%M UTC') }}
+        </div>
+      </td></tr>
+
+      {% for c in candidates %}
+      {% set ev = c.event %}
+      <tr><td style="padding:20px 26px;border-bottom:1px solid #e5e7eb;">
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="vertical-align:top;">
+              <div style="font-size:16px;font-weight:600;color:#111827;line-height:1.35;">
+                {{ ev.name }}
+              </div>
+              <div style="font-size:13px;color:#6b7280;padding-top:5px;">
+                {{ ev.venue_name or 'venue TBA' }}{% if ev.city %} · {{ ev.city }}{% if ev.state %}, {{ ev.state }}{% endif %}{% endif %}
+              </div>
+              <div style="font-size:13px;color:#6b7280;padding-top:2px;">
+                {% if ev.starts_at %}{{ ev.starts_at.strftime('%a %b %d, %Y · %I:%M %p') }}{% else %}date TBA{% endif %}
+                {% if ev.min_price %} · from ${{ '%.0f'|format(ev.min_price) }}{% endif %}
+                {% if ev.max_price %}–${{ '%.0f'|format(ev.max_price) }}{% endif %}
+              </div>
+            </td>
+            <td width="86" style="vertical-align:top;text-align:right;">
+              <div style="display:inline-block;background:#065f46;color:#ffffff;
+                          border-radius:6px;padding:7px 11px;font-size:17px;font-weight:700;">
+                {{ '%.2f'|format(c.score.score) }}
+              </div>
+              <div style="font-size:10px;color:#9ca3af;padding-top:4px;">
+                conf {{ '%.0f'|format(c.score.confidence * 100) }}%
+              </div>
+            </td>
+          </tr>
+        </table>
+
+        {% if c.kind == 'upcoming_onsale' %}
+        <div style="margin-top:11px;padding:7px 10px;background:#fef3c7;border-radius:5px;
+                    font-size:12px;color:#92400e;">
+          Not on sale yet — set a reminder rather than clicking buy.
+        </div>
+        {% elif c.kind == 'cold_start' %}
+        <div style="margin-top:11px;padding:7px 10px;background:#eff6ff;border-radius:5px;
+                    font-size:12px;color:#1e40af;">
+          No price history yet — scored on artist and scarcity signals only.
+        </div>
+        {% endif %}
+
+        {% if c.reasons %}
+        <ul style="margin:12px 0 0;padding-left:19px;font-size:13px;color:#374151;line-height:1.6;">
+          {% for r in c.reasons %}<li>{{ r }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if c.top_factors %}
+        <div style="margin-top:11px;font-size:11px;color:#9ca3af;">
+          {% for label, value in c.top_factors %}{{ label }} {{ '%.2f'|format(value) }}{% if not loop.last %} · {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+
+        <div style="padding-top:15px;">
+          <a href="{{ c.buy_url }}"
+             style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;
+                    padding:9px 15px;border-radius:6px;font-size:13px;font-weight:600;">
+            {% if c.kind == 'upcoming_onsale' %}View event{% else %}Buy now{% endif %}
+          </a>
+          <a href="{{ c.comps_url }}"
+             style="display:inline-block;margin-left:7px;color:#1d4ed8;text-decoration:none;
+                    padding:9px 12px;border:1px solid #c7d2fe;border-radius:6px;
+                    font-size:13px;font-weight:500;">
+            Check resale comps
+          </a>
+          {% if c.calendar_url %}
+          <a href="{{ c.calendar_url }}"
+             style="display:inline-block;margin-left:7px;color:#6b7280;text-decoration:none;
+                    padding:9px 12px;font-size:13px;">
+            Remind me
+          </a>
+          {% endif %}
+        </div>
+      </td></tr>
+      {% endfor %}
+
+      <tr><td style="padding:18px 26px;background:#f9fafb;font-size:11px;color:#6b7280;line-height:1.6;">
+        Scores are estimates derived from public listing data — not guarantees, and not
+        financial advice. Before buying to resell, confirm on the event page that the
+        tickets are actually transferable; non-transferable inventory cannot be resold at
+        any price. Check your state's resale rules and the venue's terms.
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>

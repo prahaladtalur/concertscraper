@@ -1,0 +1,108 @@
+# Shared runner for the scheduled jobs.
+#
+# GitHub Actions has no YAML anchors, so without a reusable workflow the poll
+# and report schedules would each carry their own copy of this env block and
+# drift apart the first time a setting changes. Callers pass `secrets: inherit`.
+name: run
+
+on:
+  workflow_call:
+    inputs:
+      commands:
+        description: Newline-separated `python -m app.cli ...` invocations
+        required: true
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # --- Required secrets ---
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
+
+      # --- Optional: artist demand signal ---
+      SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+      SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+
+      # --- Email delivery ---
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+      SMTP_USE_TLS: ${{ vars.SMTP_USE_TLS || 'true' }}
+      # Set the EMAIL_DRY_RUN repo variable to "true" to render digests to the
+      # run artifact instead of emailing them. Useful for a first live test.
+      EMAIL_DRY_RUN: ${{ vars.EMAIL_DRY_RUN || 'false' }}
+
+      # --- Optional: SMS on large position moves ---
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+      SMS_TO: ${{ secrets.SMS_TO }}
+      SMS_DAILY_SUMMARY: ${{ vars.SMS_DAILY_SUMMARY || 'false' }}
+      POSITION_MOVE_ALERT_PCT: ${{ vars.POSITION_MOVE_ALERT_PCT || '0.15' }}
+
+      # --- Tuning (repo variables, all optional) ---
+      MARKET_DMA_IDS: ${{ vars.MARKET_DMA_IDS || '324' }}
+      CLASSIFICATION_NAME: ${{ vars.CLASSIFICATION_NAME || 'Music' }}
+      LOOKAHEAD_DAYS: ${{ vars.LOOKAHEAD_DAYS || '240' }}
+      ALERT_SCORE_THRESHOLD: ${{ vars.ALERT_SCORE_THRESHOLD || '0.62' }}
+      ALERT_COOLDOWN_HOURS: ${{ vars.ALERT_COOLDOWN_HOURS || '48' }}
+      MAX_ALERTS_PER_EMAIL: ${{ vars.MAX_ALERTS_PER_EMAIL || '12' }}
+      ENABLE_AXS: 'false'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Check configuration
+        run: |
+          missing=
+          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
+          [ -n "$TICKETMASTER_API_KEY" ] || missing="$missing TICKETMASTER_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:$missing"
+            echo "See docs/DEPLOY.md for the full list." >&2
+            exit 1
+          fi
+          if [ "$EMAIL_DRY_RUN" != "true" ] && [ -z "$SMTP_HOST" ]; then
+            echo "::warning::SMTP_HOST unset — emails will be written to the run artifact instead of sent."
+          fi
+
+      - name: Create tables if needed
+        run: python -m app.cli init
+
+      - name: Run
+        run: |
+          set -euo pipefail
+          # `|| [ -n "$cmd" ]` so a final line without a trailing newline still
+          # runs instead of being silently dropped.
+          while IFS= read -r cmd || [ -n "$cmd" ]; do
+            [ -z "$cmd" ] && continue
+            echo "::group::$cmd"
+            python -m app.cli $cmd
+            echo "::endgroup::"
+          done <<'COMMANDS'
+          ${{ inputs.commands }}
+          COMMANDS
+
+      # Rendered emails only exist on disk in dry-run mode; uploading them
+      # unconditionally means a misconfigured send is still inspectable.
+      - name: Upload rendered emails
+        if: always() && hashFiles('outbox/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: outbox-${{ github.run_id }}
+          path: outbox/
+          retention-days: 14

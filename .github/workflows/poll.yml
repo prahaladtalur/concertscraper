@@ -1,0 +1,27 @@
+# Fetch inventory, snapshot prices, score, and email anything above threshold.
+#
+# The value of this project is an unbroken price history, so this is the
+# workflow that matters most. If it stops running, the momentum signal decays.
+name: poll
+
+on:
+  schedule:
+    # Every 3 hours, at :17 rather than :00 — scheduled jobs across all of
+    # GitHub pile up on the hour and get queued or dropped.
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Never let two polls write snapshots at once, but don't cancel a run that's
+  # already partway through fetching.
+  group: poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    uses: ./.github/workflows/_run.yml
+    secrets: inherit
+    with:
+      commands: |
+        poll
+        digest

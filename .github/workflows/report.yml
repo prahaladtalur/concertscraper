@@ -1,0 +1,22 @@
+# Daily mark-to-market on the tickets you own.
+name: report
+
+on:
+  schedule:
+    # 15:10 UTC = 8:10am Pacific in summer, 7:10am in winter. GitHub cron is
+    # UTC only and does not shift with daylight saving; edit this if you want a
+    # fixed local time year round.
+    - cron: '10 15 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    uses: ./.github/workflows/_run.yml
+    secrets: inherit
+    with:
+      commands: |
+        report

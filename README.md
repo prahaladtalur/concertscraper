@@ -98,6 +98,36 @@ you'd receive. Set it to `false` and fill in the SMTP settings to go live.
 
 ---
 
+## Running it for real
+
+The tool is only useful if it runs continuously — momentum needs two price
+snapshots at least 12 hours apart, and the history compounds. Two supported
+setups:
+
+**Serverless (no host to manage).** GitHub Actions runs the cron, Neon provides
+a free Postgres for state. Costs nothing. See **[docs/DEPLOY.md](docs/DEPLOY.md)**
+for the full walkthrough, including the 60-day scheduled-workflow auto-disable
+that this setup has to work around.
+
+| Workflow | Schedule (UTC) | Does |
+| --- | --- | --- |
+| `poll` | every 3h at :17 | fetch, snapshot, score, email opportunities |
+| `report` | daily 15:10 | re-price holdings, email the P/L report |
+| `tests` | every push | run the suite |
+| `keepalive` | monthly | heartbeat commit so the schedules stay enabled |
+
+**Always-on host.** `uvicorn app.main:app` runs both schedules in-process via
+APScheduler and serves the dashboard. More reliable and gives you the dashboard
+on your phone; costs a few dollars a month. No code changes needed — the same
+`DATABASE_URL` works with SQLite on a persistent volume or with Postgres.
+
+Both paths use the same code. Postgres support is verified against a real
+Postgres 16 server, not just SQLite: every timestamp column lands as
+`timestamptz`, and connection pooling uses `pool_pre_ping` so a database that
+has scaled to zero while idle reconnects instead of erroring.
+
+---
+
 ## How the scoring works
 
 Six factors, each normalised to 0–1 and weighted. Every alert explains itself in
@@ -253,15 +283,15 @@ responsibility for how you resell all stay with you.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest              # 95 tests, no network access required
+python -m pytest              # 103 tests, no network access required
 ```
 
 Tests use `respx` to mock HTTP and an in-memory SQLite database. The suite
 covers scoring factor behaviour and bounds, every veto, transfer-block phrase
 detection, Ticketmaster response parsing, AXS robots.txt guardrails, the
 ingest/snapshot/dedupe path, alert thresholds and cooldowns, portfolio cost-basis
-and P/L maths, the local-vs-API valuation fallback, and HTML escaping in both
-email templates.
+and P/L maths, the local-vs-API valuation fallback, database-URL normalisation for
+hosted Postgres, and HTML escaping in both email templates.
 
 ### Layout
 

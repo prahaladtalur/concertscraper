@@ -1,0 +1,34 @@
+# Keeps the scheduled workflows alive.
+#
+# GitHub disables scheduled workflows on a repository with no activity for 60
+# days, and scheduled runs themselves do NOT count as activity. For a tool whose
+# entire value is an uninterrupted price history, silently stopping after two
+# months is the worst available failure mode — so this commits a heartbeat
+# monthly to reset that clock.
+#
+# Cost: 12 trivial commits a year. If you push to this repo regularly anyway,
+# you can safely delete this workflow.
+name: keepalive
+
+on:
+  schedule:
+    - cron: '30 6 1 * *'   # 06:30 UTC on the 1st of each month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Commit heartbeat
+        run: |
+          set -euo pipefail
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .github/last-heartbeat
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/last-heartbeat
+          git diff --staged --quiet || git commit -m 'chore: keepalive heartbeat'
+          git push

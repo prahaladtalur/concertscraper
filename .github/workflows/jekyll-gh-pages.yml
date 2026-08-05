@@ -1,4 +1,13 @@
-# Sample workflow for building and deploying a Jekyll site to GitHub Pages
+# Publishes the contents of ./site to GitHub Pages.
+#
+# IMPORTANT: `source` below is ./site, not ./ — do not change it back.
+#
+# A GitHub Pages site is publicly visible even when the repository is private
+# (restricting it requires an Enterprise plan). Building from ./ would publish
+# README.md and everything under docs/ to the open internet, including the
+# scoring model and the strategy writeup. Pointing the build at a dedicated
+# folder makes the published surface something you choose file by file rather
+# than everything that happens to be in the repo.
 name: Deploy Jekyll with GitHub Pages dependencies preinstalled
 
 on:
@@ -33,7 +42,7 @@ jobs:
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./
+          source: ./site
           destination: ./_site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

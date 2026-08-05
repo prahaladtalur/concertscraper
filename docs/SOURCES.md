@@ -72,11 +72,37 @@ just don't fire, and `confidence` drops accordingly, which is the honest outcome
 
 ## AXS — disabled by default, and probably should stay that way
 
-**Status: no public API. Terms prohibit automated collection.**
+**Status: no public API. Terms prohibit automated collection. Edge protection
+blocks non-browser clients outright.**
 
 AXS publishes no developer API. Their Terms of Use prohibit automated data
-collection, and the site runs bot detection. `ENABLE_AXS` therefore defaults to
-`false`, and the adapter is built to fail closed:
+collection.
+
+### What was actually measured
+
+Worth recording, because the robots.txt result is the opposite of what you'd
+expect and it doesn't change the conclusion:
+
+`https://www.axs.com/robots.txt` is *permissive*. It disallows only `/users`,
+`/me`, `/search`, `/contributor`, and URLs carrying a `referrer=` parameter,
+with `Crawl-delay: 2`. Event listing pages are **not** disallowed.
+
+But every actual page request returns **HTTP 403**, and it does so regardless
+of user agent — an honest self-identifying agent, a default Python one, it makes
+no difference. AXS sits behind edge bot protection that refuses any client that
+doesn't look like a real browser. Only `robots.txt` itself is served, which is
+typical: WAFs usually exempt it.
+
+So the picture is: robots.txt says come in, the front door is bolted, and the
+Terms of Use say don't try. The only way through is a headless browser
+impersonating a person, which is (a) circumventing an access control, which is
+the conduct the BOTS Act is about, (b) a Terms of Use breach, and (c) brittle —
+it breaks whenever their detection is tuned. That is not a tradeoff worth making
+for a secondary data source.
+
+### How the adapter is built
+
+`ENABLE_AXS` defaults to `false`, and the adapter fails closed:
 
 1. It returns immediately unless `ENABLE_AXS=true` is set explicitly.
 2. It fetches `https://www.axs.com/robots.txt` and checks the target path against
@@ -90,6 +116,23 @@ collection, and the site runs bot detection. `ENABLE_AXS` therefore defaults to
 That last point is deliberate. Writing a speculative parser for a site whose
 terms forbid the activity would be building the thing the guardrails exist to
 prevent. If AXS ever publishes an API, write a proper adapter against it.
+
+### "But isn't AXS easier to resell on?"
+
+Common assumption, and it's mostly backwards. AXS Mobile ID exists specifically
+to stop tickets moving outside AXS's own system, and many AXS venues confine
+resale to AXS Official Resale, sometimes with a price cap. A transferable
+Ticketmaster ticket can be listed on StubHub, SeatGeek, Vivid, TickPick — several
+marketplaces competing for your listing.
+
+The real determinant of resale hassle is per-event, not per-platform: is this
+specific ticket transferable? Both platforms have locked and unlocked events.
+That is exactly what `detect_transfer_block` filters on, and it's why that filter
+is a hard veto rather than a scoring penalty.
+
+Also worth separating: where you *buy* does not determine where you *sell*. If a
+ticket transfers, you can list it anywhere. The purchase platform only governs
+whether transfer is permitted at all.
 
 The rest of the system is designed so AXS is pure optional upside: Ticketmaster
 covers the large majority of North American concert inventory, and every scoring

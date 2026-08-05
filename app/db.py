@@ -46,10 +46,20 @@ def build_engine(url: str) -> Engine:
     # recycle connections aggressively. pool_pre_ping discards dead connections
     # instead of raising on first use, which is the difference between a
     # scheduled run that works and one that fails every time after a quiet spell.
+    #
+    # prepare_threshold=None disables psycopg's automatic prepared statements.
+    # Managed Postgres is usually reached through a PgBouncer-style pooler in
+    # transaction mode (Neon's `-pooler` host, Supabase's `pooler.` host), where
+    # a prepared statement created on one backend is missing on the next and
+    # queries start failing with "prepared statement does not exist". Ingest
+    # reruns the same lookup once per event, so it would cross psycopg's
+    # 5-execution threshold within the first seconds of every poll. At this
+    # query volume the statements save nothing worth that failure mode.
     return create_engine(
         url,
         pool_pre_ping=True,
         pool_recycle=300,
+        connect_args={"prepare_threshold": None},
         future=True,
     )
 

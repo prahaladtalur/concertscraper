@@ -78,6 +78,30 @@ Note `DAILY_REPORT_HOUR_UTC` has **no effect here** — it drives the in-process
 scheduler used when you run `uvicorn`. On Actions the cron in
 `.github/workflows/report.yml` is what decides the time.
 
+## What happens before you finish setup
+
+With no secrets set, `poll` and `report` **skip quietly** rather than failing.
+You get a neutral run with a note explaining what's missing, not a red X and a
+failure email every three hours. Once both required secrets exist the runs start
+doing real work automatically.
+
+If only *some* required secrets are set, that still fails loudly — a half
+configured deployment is a genuine mistake worth interrupting you for.
+
+Each run also calls `python -m app.cli preflight` before touching anything,
+which checks that the credentials actually work rather than merely exist:
+
+```
+  [PASS] database      reachable (postgresql+psycopg)
+  [FAIL] ticketmaster  key rejected (401)
+  [----] spotify       not set — artist demand signal disabled
+  [PASS] email         smtp.gmail.com -> 1 recipient(s)
+  [----] sms           not set — email only
+```
+
+Run it locally the same way. It never prints the connection string, since that
+carries your password.
+
 ## 4. First run
 
 Set the `EMAIL_DRY_RUN` variable to `true`, then **Actions → poll → Run

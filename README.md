@@ -240,6 +240,7 @@ against the 5,000-request daily budget.
 | Command | Purpose |
 | --- | --- |
 | `init` | Create database tables |
+| `preflight` | Check that credentials actually work |
 | `poll` | One full cycle: fetch, store, enrich, score |
 | `score` | Rescore stored events without fetching |
 | `top [--limit N]` | Print the current ranking |
@@ -283,7 +284,7 @@ responsibility for how you resell all stay with you.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest              # 103 tests, no network access required
+python -m pytest              # 106 tests, no network access required
 ```
 
 Tests use `respx` to mock HTTP and an in-memory SQLite database. The suite

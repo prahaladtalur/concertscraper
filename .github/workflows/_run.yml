@@ -57,33 +57,63 @@ jobs:
       ENABLE_AXS: 'false'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      # Distinguishes "not set up yet" from "set up and broken".
+      #
+      # Before this ran, an unconfigured repo failed every scheduled poll —
+      # eight red runs and eight failure emails a day, for a setup step that
+      # simply hadn't happened. That trains you to ignore the notifications,
+      # which is exactly backwards for a tool whose only real failure mode is
+      # silently stopping.
+      #
+      # No secrets at all -> skip the run quietly, because nothing is wrong yet.
+      # Some but not all -> fail loudly, because that IS a misconfiguration.
+      - name: Check configuration
+        id: cfg
+        run: |
+          have=0; missing=
+          for name in DATABASE_URL TICKETMASTER_API_KEY; do
+            eval "value=\${$name:-}"
+            if [ -n "$value" ]; then have=$((have + 1)); else missing="$missing $name"; fi
+          done
+
+          if [ "$have" -eq 0 ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Not configured yet — skipping. Add the DATABASE_URL and TICKETMASTER_API_KEY secrets to start collecting prices (see docs/DEPLOY.md)."
+            exit 0
+          fi
+
+          if [ -n "$missing" ]; then
+            echo "::error::Partially configured — missing:$missing"
+            echo "Add the missing secrets, or remove the others to pause the schedule cleanly." >&2
+            exit 1
+          fi
+
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+          if [ "$EMAIL_DRY_RUN" != "true" ] && [ -z "$SMTP_HOST" ]; then
+            echo "::warning::SMTP_HOST unset — emails will be written to the run artifact instead of sent."
+          fi
+
+      - uses: actions/setup-python@v7
+        if: steps.cfg.outputs.configured == 'true'
         with:
           python-version: '3.11'
           cache: pip
 
       - run: pip install -r requirements.txt
+        if: steps.cfg.outputs.configured == 'true'
 
-      - name: Check configuration
-        run: |
-          missing=
-          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
-          [ -n "$TICKETMASTER_API_KEY" ] || missing="$missing TICKETMASTER_API_KEY"
-          if [ -n "$missing" ]; then
-            echo "::error::Missing required secrets:$missing"
-            echo "See docs/DEPLOY.md for the full list." >&2
-            exit 1
-          fi
-          if [ "$EMAIL_DRY_RUN" != "true" ] && [ -z "$SMTP_HOST" ]; then
-            echo "::warning::SMTP_HOST unset — emails will be written to the run artifact instead of sent."
-          fi
+      - name: Verify database and API credentials
+        if: steps.cfg.outputs.configured == 'true'
+        run: python -m app.cli preflight
 
       - name: Create tables if needed
+        if: steps.cfg.outputs.configured == 'true'
         run: python -m app.cli init
 
       - name: Run
+        if: steps.cfg.outputs.configured == 'true'
         run: |
           set -euo pipefail
           # `|| [ -n "$cmd" ]` so a final line without a trailing newline still
@@ -101,7 +131,7 @@ jobs:
       # unconditionally means a misconfigured send is still inspectable.
       - name: Upload rendered emails
         if: always() && hashFiles('outbox/**') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: outbox-${{ github.run_id }}
           path: outbox/

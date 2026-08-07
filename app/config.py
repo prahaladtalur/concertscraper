@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_DATABASE_URL = "sqlite:///./concertscraper.db"
 
 
 class Settings(BaseSettings):
@@ -70,7 +73,22 @@ class Settings(BaseSettings):
     sms_to: str = ""
 
     # --- Storage ---------------------------------------------------------
-    database_url: str = "sqlite:///./concertscraper.db"
+    database_url: str = DEFAULT_DATABASE_URL
+
+    @field_validator("database_url")
+    @classmethod
+    def _blank_url_means_unset(cls, value: str) -> str:
+        """Treat an empty DATABASE_URL as "not set" rather than as a URL.
+
+        A defined-but-empty environment variable (`DATABASE_URL=` in a shell,
+        or an unset GitHub secret interpolated into a workflow) overrides the
+        field default with "". That reaches create_engine, which raises
+        ArgumentError at import time — so every single command, including the
+        one meant to diagnose configuration problems, dies with a traceback
+        before main() runs. Falling back to the documented default keeps the
+        CLI usable and lets preflight report the real state.
+        """
+        return value.strip() or DEFAULT_DATABASE_URL
 
     @property
     def dma_id_list(self) -> list[str]:

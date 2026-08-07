@@ -267,6 +267,130 @@ def cmd_seed(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_preflight(_: argparse.Namespace) -> int:
+    """Check that credentials actually work, before a real run depends on them.
+
+    Configuration being *present* and configuration being *correct* are
+    different things, and the difference otherwise shows up as a confusing
+    traceback partway through a scheduled poll. Each check names the specific
+    thing to go fix.
+    """
+    import httpx
+
+    settings = get_settings()
+    results: list[tuple[str, bool, bool, str]] = []  # name, required, ok, detail
+
+    # --- Database -------------------------------------------------------
+    if not settings.database_url:
+        results.append(("database", True, False, "DATABASE_URL is empty"))
+    else:
+        from sqlalchemy import text
+
+        from .db import build_engine, normalise_database_url
+
+        try:
+            eng = build_engine(settings.database_url)
+            with eng.connect() as conn:
+                conn.execute(text("select 1"))
+            backend = normalise_database_url(settings.database_url).split("://")[0]
+            results.append(("database", True, True, f"reachable ({backend})"))
+        except Exception as exc:
+            # Never echo the URL itself — it carries the password.
+            results.append(
+                ("database", True, False, f"{type(exc).__name__}: {str(exc)[:120]}")
+            )
+
+    # --- Ticketmaster ---------------------------------------------------
+    if not settings.ticketmaster_api_key:
+        results.append(("ticketmaster", True, False, "TICKETMASTER_API_KEY is empty"))
+    else:
+        try:
+            resp = httpx.get(
+                "https://app.ticketmaster.com/discovery/v2/events.json",
+                params={"apikey": settings.ticketmaster_api_key, "size": 1},
+                timeout=30.0,
+            )
+            if resp.status_code == 401:
+                results.append(("ticketmaster", True, False, "key rejected (401)"))
+            elif resp.status_code == 429:
+                results.append(
+                    ("ticketmaster", True, False, "rate limited (429) — quota spent?")
+                )
+            elif resp.status_code >= 400:
+                results.append(
+                    ("ticketmaster", True, False, f"HTTP {resp.status_code}")
+                )
+            else:
+                total = resp.json().get("page", {}).get("totalElements", "?")
+                results.append(
+                    ("ticketmaster", True, True, f"key valid ({total} events visible)")
+                )
+        except httpx.HTTPError as exc:
+            results.append(("ticketmaster", True, False, f"unreachable: {exc}"))
+
+    # --- Spotify (optional) ---------------------------------------------
+    if not (settings.spotify_client_id and settings.spotify_client_secret):
+        results.append(
+            ("spotify", False, False, "not set — artist demand signal disabled")
+        )
+    else:
+        import base64
+
+        try:
+            creds = base64.b64encode(
+                f"{settings.spotify_client_id}:{settings.spotify_client_secret}".encode()
+            ).decode()
+            resp = httpx.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "client_credentials"},
+                headers={"Authorization": f"Basic {creds}"},
+                timeout=20.0,
+            )
+            ok = resp.status_code == 200
+            results.append(
+                ("spotify", False, ok, "credentials valid" if ok else "rejected")
+            )
+        except httpx.HTTPError as exc:
+            results.append(("spotify", False, False, f"unreachable: {exc}"))
+
+    # --- Email ----------------------------------------------------------
+    if settings.email_dry_run:
+        results.append(("email", False, True, "dry run — digests saved as files"))
+    elif not settings.smtp_host:
+        results.append(("email", False, False, "SMTP_HOST unset — will save to file"))
+    elif not settings.recipients:
+        results.append(("email", False, False, "EMAIL_TO unset — nowhere to send"))
+    else:
+        results.append(
+            ("email", False, True, f"{settings.smtp_host} -> {len(settings.recipients)} recipient(s)")
+        )
+
+    # --- SMS (optional) -------------------------------------------------
+    results.append(
+        (
+            "sms",
+            False,
+            settings.sms_configured,
+            "Twilio configured" if settings.sms_configured else "not set — email only",
+        )
+    )
+
+    failed_required = [r for r in results if r[1] and not r[2]]
+    for name, required, ok, detail in results:
+        mark = "PASS" if ok else ("FAIL" if required else "----")
+        print(f"  [{mark}] {name:<13} {detail}")
+
+    if failed_required:
+        print(
+            f"\n{len(failed_required)} required check(s) failed. "
+            "See docs/DEPLOY.md.",
+            file=sys.stderr,
+        )
+        return 1
+    print("\nPreflight OK.")
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Portfolio commands
 # --------------------------------------------------------------------------
@@ -398,6 +522,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="create database tables").set_defaults(func=cmd_init)
+    sub.add_parser(
+        "preflight", help="verify credentials actually work"
+    ).set_defaults(func=cmd_preflight)
     sub.add_parser("poll", help="fetch, store, and score").set_defaults(func=cmd_poll)
     sub.add_parser("score", help="rescore stored events").set_defaults(func=cmd_score)
     sub.add_parser("digest", help="build and deliver the digest").set_defaults(

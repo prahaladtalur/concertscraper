@@ -54,3 +54,30 @@ class TestBuildEngine:
         # Dead pooled connections must be discarded, not raised on — Neon's free
         # tier scales to zero when idle.
         assert engine.pool._pre_ping is True
+
+
+class TestBlankDatabaseUrl:
+    """A defined-but-empty DATABASE_URL must not break the whole CLI.
+
+    An unset GitHub secret interpolates to "", which previously reached
+    create_engine at import time and turned every command — including the one
+    meant to diagnose configuration — into a SQLAlchemy traceback.
+    """
+
+    def test_blank_falls_back_to_the_documented_default(self):
+        from app.config import DEFAULT_DATABASE_URL, Settings
+
+        assert Settings(database_url="").database_url == DEFAULT_DATABASE_URL
+        assert Settings(database_url="   ").database_url == DEFAULT_DATABASE_URL
+
+    def test_real_url_is_untouched(self):
+        from app.config import Settings
+
+        url = "postgresql://u:p@host/db"
+        assert Settings(database_url=url).database_url == url
+
+    def test_blank_url_still_builds_a_usable_engine(self):
+        from app.config import Settings
+
+        engine = build_engine(Settings(database_url="").database_url)
+        assert engine.dialect.name == "sqlite"
